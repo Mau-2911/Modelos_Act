@@ -1,0 +1,488 @@
+---
+title: Segundo examen parcial 
+author: Simulación
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Instrucciones:
+
+Resuelve los siguientes ejercicios. Una entrega exitosa será la que pueda
+compilar y generar un pdf sin problemas, y aún mas importante, que incluya todas
+las respuestas del examen. 
+
+```{r knit, eval = FALSE, include = FALSE}
+# Este bloque es sólo para que puedas verificar que tu codigo compila bien. 
+# Corre esta línea y después busca en tu directorio el pdf.
+rmarkdown::render("assignment.Rmd", 
+                  output_file = "entrega.pdf", 
+                  clean = TRUE, 
+                  quiet = TRUE)
+```
+
+
+
+```{r setup}
+
+renv::restore()
+
+semilla <- 179992 # Tu clave unica
+set.seed(semilla)
+
+library(dplyr)    # Para manipular y arreglar los datos ------------------------
+library(tidyr)
+library(purrr)
+library(rsample)  # Para hacer el remuestreo -----------------------------------
+library(ggplot2)  # Para graficar ----------------------------------------------
+
+
+```
+
+
+### 1. Tráfico
+                                                                        
+La base de datos _amis_ (publicada por G. Amis) contiene información de
+velocidades de coches en millas por hora, las mediciones se realizaron en
+caminos de Cambridgeshire, y para cada ubicación se realizan mediciones en dos
+sitios, en uno de estos sitios se situó una señal de alerta (de dismunición de
+velocidad). Mas aún, las mediciones se realizaron en dos ocasiones, antes y
+después de que se instalara la señal de alerta. La cantidad de interés es el
+cambio medio relativo de velocidad en el cuantil 0.85. Se eligió esta cantidad
+porque el objetivo de la señal de alerta es disminuir la velocidad de los
+conductores más veloces.
+
+Variables con las que cuenta este conjunto de datos son:   
+
+- `speed`: velocidad de los autos en mph,   
+- `period`: periodo en que se hicieron las mediciones. Es decir, 1 indica antes de la señal, 2 cuando ya había señal,  
+- `pair`: carretera en que se hizo la medición (1,2,5,7,8,9,10,11,12,13,14),
+- `warning`: si se colocó señal de alerta en el sitio. Es decir, 1 indica que si había señal, 2 que no había.
+
+
+Por interpretabilidad haremos un cambio de los valores de la variables con el 
+bloque de abajo. 
+
+```{r}
+data <- read.csv("datos/amis.csv") |> tibble() |>
+  mutate(
+    period  = ifelse(period == 1, "antes", "despues"),
+    warning = ifelse(warning ==  1, "conalerta", "sinalerta")
+  )
+```
+
+a) ¿Las observaciones conforman una muestra aleatoria? Explica tu respuesta y en
+caso de ser negativa explica la estructura de los datos.
+
+(Los valores son vaiids)
+Definir el estimador, sacar una cantidad de interes de los datos, y una vez que lo logramos, obtengo la suma de ordenes para cada grupo, una vez que logro construir esas cantidades de interes debo calcular la diferencia, con la funcion pivot wider (Linea 115) para tener una columna de no y otra de si y con un mutate ya tengo la columna de la diferencia y una columna de nuestro estimador. 
+Para usar la libreria de r sample necesitamos 2 columnas, la de estimate y la de term. 
+Seguir pasos del ejercicio guardadop
+Se comparan los estimadores del estimador feo y del bonito
+
+No, para ser una meustra aleatoria debio de verse generaado seleccionando al azar las carreteras de las cuales se obtendrian los datos, y posteriormente de forma aleatoria determinar si un auto registrado se le pondria un letrero para la reducción de su velocidad, lo cual no se hizo, lo que se hizo fue que en una carretera se coloco en un sitio diferente una señal para la disminución de velocidad y en otro sitio no, y se midio la velocidad de los autos, autos que pudieron ser los mismos en ambas mediciones, para ser una muestra aleatoria, debio escojerse de forma aleatoria los datos recopilados paraa mantener la variabilidad y fueran independientes unos de los otros. 
+ 
+
+b) El estadístico de interés se puede escribir como 
+
+$$\theta=\frac{1}{N}\sum_{i = 1}^{N}\left[\left(\eta_{i,a}^{(1)}-\eta_{i,b}^{(1)}\right)- \left(\eta_{i,a}^{(0)}-\eta_{i,b}^{(0)}\right)\right]\,,$$ 
+  
+donde $\eta_{i,1}^{(1)}$, $\eta_{i,2}^{(1)}$ corresponden a los cuartiles 0.85
+de la distribución de velocidad en los sitios en los que se colocó la señal de
+alerta, ($1$ corresponde a las mediciones antes de la señal y $2$ después) y
+$\eta_{i,1}^{(0)}$, $\eta_{i,2}^{(0)}$ son los correspondientes para los sitios
+sin alerta, $N$ denota el número de carreteras. Es decir, denotamos por
+$$ \eta^{(\mathsf{warning})}_{i, \mathsf{period}}\,,$$
+donde $\eta_i$ es el percentil .85 de la carretera $i$ para cuando se establece
+la señal $\mathsf{warning} \in {1, 2}$.
+
+Calcula el estimador _plug-in_ de $\theta$.
+
+Antes de eso, se espera observar que la alerta de reducción de velocidad tienen un impacto en las personas, por lo que visualizaremos solo la velocidad de los autos con y sin alerta.
+```{r}
+data |>
+  ggplot(aes(warning, speed, group = warning)) + 
+  geom_boxplot() + 
+  coord_flip()
+```
+
+
+
+```{r}
+
+data |>
+  # Rellena el código para realizar el agrupado. Hint: puedes usar col1,..., col  p
+  group_by(period, warning) |> 
+  # Rellena el código para calcular el cuantil
+  summarise(qspeed = quantile(speed, .85), 
+            .groups = "drop")
+
+calcula_estimador <- function(muestra, ...){
+  muestra |>
+    analysis() |>
+    # Copia el código necesario para calcular el estadistico que nos interesa -
+    group_by(period, warning, pair) |> 
+    summarise(qspeed = quantile(speed, .85), 
+                .groups = "drop")|> 
+    # --------------------------------------------------------------------------
+    pivot_wider(
+      id_cols = pair,
+      values_from = qspeed,
+      names_from = c(warning, period)
+    ) |>
+    mutate(
+      theta = (conalerta_antes - conalerta_despues) - (sinalerta_antes - sinalerta_despues)
+    ) |>
+    summarise(estimate = mean(theta),
+              term = "theta")
+}
+```
+
+En el bloque anterior ¿qué es lo que hace la función `pivot_wider`?
+
+Lo que hace es pivotar los datos de largo a ancho, aumenta el numero de columnas y disminuye el numero de filas, la columna "pair" será la columna que identifica de forma única cada observación y "qspeed" un par de argumentos que describen de que columna obtener el numero de la columna de salida. 
+
+c) Genera $B=100$ replicaciones bootstrap de $\theta$ y realiza un histograma. 
+
+```{r}
+boots <- data |>
+  # Para poder usar el estrato necesitamos qué este sea una columna. Actualmente
+  # son varias. En la funcion _paste_ de abajo incorpora las columnas que se
+  # tienen que concatenar para crear /una columna/ de estrato para la función
+  # _bootstraps_.
+  mutate(estrato = paste(period, warning)) |>
+  bootstraps(strata = estrato, times = 1000)
+
+boots
+
+
+```
+
+El siguiente bloque debería de generar el histograma de nuestro estimador `estimate`.
+
+```{r}
+boots <- boots |>
+  mutate(resultados = map(splits, calcula_estimador))
+  
+boots |> unnest(resultados) |>
+  ggplot(aes(estimate)) + 
+  geom_histogram()
+```
+
+
+d) Genera intervalos de confianza usando la aproximación normal y percentiles.
+Comparalos y en caso de encontrar diferencias explica a que se deben.
+
+Dado el supuesto de que podemos usar la aproximación normal podemos generar los intervalos de confianza y ver si la distribución es simetrica, lo será si es que los intervalos de confianza por perecentiles y por aproximación normal son iguales o muy parecidos. De no ser así, tendrenmos un gran sesgo al usar la aproximación normal. 
+
+```{r}
+intervalos_normales_pregunta1 <- boots |> 
+  unnest(resultados)|> 
+  summarise(media_boot = mean(estimate), ee_boot = sd(estimate))|>
+  mutate(inf = media_boot - 2 * ee_boot, sup = media_boot + 2 * ee_boot)
+intervalos_normales_pregunta1 
+
+boots |>
+  int_pctl(resultados, alpha = .05) |>
+  mutate(.length = .upper - .lower)
+#Por lo que se ve que los intervalos se parecen "mucho".
+```
+
+### 2. Cobertura de intervalos
+
+En este problema realizarás un ejercicio de simulación para comparar la 
+exactitud de distintos intervalos de confianza. Simularás muestras de  
+una distribución Poisson con parámetro $\lambda=2.5$ y el estadístico de interés  
+es $\theta=\exp(-2\lambda)$.
+
+
+Sigue el siguiente proceso:
+  
+  i) Genera una muestra aleatoria de tamaño $n=60$ con distribución 
+  $Poisson(\lambda)$, parámetro $\lambda=2.5$ (en R usa la función `rpois()`).
+  
+```{r}
+set.seed(179992)
+
+n_samples <- 60
+lamda <- 2.5
+poi <- data.frame(simulacion = rpois(n_samples, lamda))
+poi
+```
+  
+
+  ii) Genera $2,500$ muestras bootstrap y calcula intervalos de confianza del 
+95\% para $\hat{\theta}$ usando 1) el método normal y 2) percentiles.
+
+```{r}
+teta <- function(split, ...){
+  split |> 
+  analysis() |>
+  summarise(estimate = exp(-2 * sum(simulacion)/60))
+}
+
+
+boots_2 <- bootstraps(poi, times = 1000)|> 
+  mutate(resultados = map(splits, teta))
+boots_2
+
+estimador.obs <- exp(-2*mean(poi$simulacion))
+estimador.obs 
+
+resumen_boot <- boots_2 |> 
+  unnest(resultados) |> 
+  summarise(media.boot = mean(estimate))|> 
+  mutate(sesgo = media.boot - estimador.obs)
+resumen_boot
+
+
+intervalos_normales <- boots_2 |> 
+  unnest(resultados)|> 
+  summarise(media_boot = mean(estimate), ee_boot = sd(estimate))|>
+  mutate(inf = media_boot - 2 * ee_boot, sup = media_boot + 2 * ee_boot)
+intervalos_normales 
+
+intervalos_percentil <- boots_2 |>
+  unnest(resultados)|>
+  summarise(inf = quantile(estimate,probs = c(0.025)) , media = quantile(estimate, probs = c(0.50)), sup =  quantile(estimate,probs = c(0.975)))
+intervalos_percentil
+
+
+
+
+```
+
+
+iii) Revisa si el intervalo de confianza contiene el verdadero valor del 
+parámetro ($\theta=\exp(-2\cdot2.5)$), en caso de que no lo contenga registra si 
+falló por la izquierda (el límite inferior mayor $2 \exp(-2*\lambda)$) o falló por la 
+derecha (el límite superior menor $2\exp(-2*\lambda)$).
+
+Podemos observar que el valor real se encuentra dentro de nuestros intervalos de confianza al 95%, tanto en la aproximación normal como en la aproximación por quantiles, en el siguiente chunk verificaremos que el promedio de las tetas estimadas se encuentra en el intervalo de confianza.
+
+```{r}
+
+media_teta <- boots_2 |>
+  unnest(resultados)|>
+  summarise(media_boot = mean(estimate))
+  
+media_teta
+if(intervalos_normales[3]<media_teta){
+  if(media_teta< intervalos_normales[4]){print("El intervalo de confianza normal contienen el valor del promedio de las tetas estimadas")
+  }
+}
+if(intervalos_percentil[1]<media_teta){
+  if(media_teta< intervalos_percentil[3]){print("El intervalo de confianza quantil contienen el valor del promedio de las tetas estimadas")
+  }
+}
+```
+En el siguiente chunk calcularemos la proporcion de error de las tetas estimadas en las 1000 remuestras 
+```{r}
+intervalos_normales_proporcion <- boots_2 |> 
+  unnest(resultados) |> 
+  mutate(upper = estimate >= max(intervalos_normales$sup),
+         lower = estimate <= min(intervalos_normales$inf))|>
+  summarise(prop_inf = mean(lower),
+            prop_sup = mean(upper))
+intervalos_normales_proporcion
+  
+intervalos_percentil_proporcion <- boots_2 |> 
+  unnest(resultados) |> 
+  mutate(upper = estimate >= max(intervalos_percentil$sup),
+         lower = estimate <= min(intervalos_percentil$inf))|>
+  summarise(prop_inf = mean(lower),
+            prop_sup = mean(upper))
+intervalos_percentil_proporcion
+
+```
+
+
+a) Repite el proceso descrito 100 veces y llena la siguiente tabla:
+  
+  Método     | \% fallo izquierda   | \% fallo derecha  | Cobertura | Longitud promedio
+-----------|----------------------|-------------------|-----------|------------ 
+  Normal     |                      |                   |           |
+  Percentiles|                      |                   |           |
+  
+  La columna cobertura es una estimación de la cobertura del intervalo basada en 
+las simulaciones, para calcularla simplemente escribe el porcentaje de los 
+intervalos que incluyeron el verdadero valor del parámetro. La longitud promedio
+es la longitud promedio de los intervalos de confianza bajo cada método.
+
+```{r}
+prop_inferior_normal <- table(0)
+prop_superior_normal <- table(0)
+cobertura_normal     <- table(0)
+longitud_normal      <- table(0)
+
+prop_inferior_quantil <- table(0)
+prop_superior_quantil <- table(0)
+cobertura_quantil     <- table(0)
+longitud_quantil      <- table(0)
+
+n_samples <- 60
+lamda <- 2.5
+poi <- data.frame(simulacion = rpois(n_samples, lamda))
+
+samples_boot <- data.frame(rerun(100, simulacion = rpois(n_samples, lamda)))
+
+
+teta <- function(split, ...){
+  split |> 
+  analysis() |>
+  summarise(estimate = exp(-2 * sum(simulacion)/60))
+}
+
+for(i in 1:100){
+  poi_2 <- data.frame(simulacion = samples_boot[,i])
+  boots_3 <- bootstraps(poi_2, times = 1000)|> 
+    mutate(resultados = map(splits, teta))
+  estimador.obs <- exp(-2*mean(poi_2$simulacion))
+  
+  intervalos_normales <- boots_3 |> 
+    unnest(resultados)|> 
+    summarise(media_boot = mean(estimate), ee_boot = sd(estimate))|>
+    mutate(inf = media_boot - 2 * ee_boot, sup = media_boot + 2 * ee_boot)
+  
+  longitud_normal[i] <- as.numeric(intervalos_normales[4]) - 
+                        as.numeric(intervalos_normales[3])
+  intervalos_percentil <- boots_3 |>
+    unnest(resultados)|>
+    summarise(inf = quantile(estimate,probs = c(0.025)) , media = quantile(estimate, probs = c(0.50)),           sup = quantile(estimate,probs = c(0.975)))
+  
+  longitud_quantil[i] <- as.numeric(intervalos_percentil[3]) - 
+                      as.numeric(intervalos_percentil[1])
+  #r----------------------------------------------------------------------------------------------------
+  intervalos_normales_proporcion <- boots_3 |> 
+    unnest(resultados) |> 
+    mutate(upper = estimate >= max(intervalos_normales$sup),
+         lower = estimate <= min(intervalos_normales$inf))|>
+    summarise(prop_inf = mean(lower),
+            prop_sup = mean(upper))
+  
+  prop_inferior_normal[i] <- as.numeric(intervalos_normales_proporcion[1])
+  prop_superior_normal[i] <- as.numeric(intervalos_normales_proporcion[2])
+  
+  cobertura_normal[i] <- 100 - 
+    as.numeric(intervalos_normales_proporcion[1]) - 
+    as.numeric(intervalos_normales_proporcion[2])
+  
+  
+  
+  intervalos_percentil_proporcion <- boots_3 |> 
+    unnest(resultados) |> 
+    mutate(upper = estimate >= max(intervalos_percentil$sup),
+           lower = estimate <= min(intervalos_percentil$inf))|>
+    summarise(prop_inf = mean(lower),
+              prop_sup = mean(upper))
+  prop_inferior_quantil[i] <- as.numeric(intervalos_percentil_proporcion[1])
+  prop_superior_quantil[i] <- as.numeric(intervalos_percentil_proporcion[2])
+  
+  cobertura_quantil[i] <- 100 - 
+    as.numeric(intervalos_percentil_proporcion[1]) - 
+    as.numeric(intervalos_percentil_proporcion[2])
+  
+  
+}
+
+Proporcion_Normal_ <- c(" % fallo izquierda normal" = mean(prop_inferior_normal), " % fallo derecha normal" = mean(prop_superior_normal), "Cobertura normal" = mean(cobertura_normal), "Longitud promedio normal"= mean(longitud_normal)) 
+Proporcion_Normal_
+Proporcion_Quantil_ <- c(" % fallo izquierda quantil" = mean(prop_inferior_quantil), " % fallo derecha quantil" = mean(prop_superior_quantil), "Cobertura quantil" = mean(cobertura_quantil), "Longitud promedio quantil" = mean(longitud_quantil)) 
+Proporcion_Quantil_
+
+```
+
+
+
+b) Repite el inciso a) seleccionando muestras de tamaño $300$.
+
+  Método     | \% fallo izquierda   | \% fallo derecha  | Cobertura | Longitud promedio
+-----------|----------------------|-------------------|-----------|------------ 
+  Normal     |                      |                   |           |
+  Percentiles|                      |                   |           |
+
+
+```{r}
+prop_inferior_normal <- table(0)
+prop_superior_normal <- table(0)
+cobertura_normal     <- table(0)
+longitud_normal      <- table(0)
+
+prop_inferior_quantil <- table(0)
+prop_superior_quantil <- table(0)
+cobertura_quantil     <- table(0)
+longitud_quantil      <- table(0)
+
+n_samples <- 60
+lamda <- 2.5
+poi <- data.frame(simulacion = rpois(n_samples, lamda))
+
+samples_boot <- data.frame(rerun(300, simulacion = rpois(n_samples, lamda)))
+
+
+teta <- function(split, ...){
+  split |> 
+  analysis() |>
+  summarise(estimate = exp(-2 * sum(simulacion)/60))
+}
+
+for(i in 1:300){
+  poi_2 <- data.frame(simulacion = samples_boot[,i])
+  boots_3 <- bootstraps(poi_2, times = 1000)|> 
+    mutate(resultados = map(splits, teta))
+  estimador.obs <- exp(-2*mean(poi_2$simulacion))
+  
+  intervalos_normales <- boots_3 |> 
+    unnest(resultados)|> 
+    summarise(media_boot = mean(estimate), ee_boot = sd(estimate))|>
+    mutate(inf = media_boot - 2 * ee_boot, sup = media_boot + 2 * ee_boot)
+  
+  longitud_normal[i] <- as.numeric(intervalos_normales[4]) - 
+                        as.numeric(intervalos_normales[3])
+  intervalos_percentil <- boots_3 |>
+    unnest(resultados)|>
+    summarise(inf = quantile(estimate,probs = c(0.025)) , media = quantile(estimate, probs = c(0.50)),           sup = quantile(estimate,probs = c(0.975)))
+  
+  longitud_quantil[i] <- as.numeric(intervalos_percentil[3]) - 
+                      as.numeric(intervalos_percentil[1])
+  #r----------------------------------------------------------------------------------------------------
+  intervalos_normales_proporcion <- boots_3 |> 
+    unnest(resultados) |> 
+    mutate(upper = estimate >= max(intervalos_normales$sup),
+         lower = estimate <= min(intervalos_normales$inf))|>
+    summarise(prop_inf = mean(lower),
+            prop_sup = mean(upper))
+  
+  prop_inferior_normal[i] <- as.numeric(intervalos_normales_proporcion[1])
+  prop_superior_normal[i] <- as.numeric(intervalos_normales_proporcion[2])
+  
+  cobertura_normal[i] <- 100 - 
+    as.numeric(intervalos_normales_proporcion[1]) - 
+    as.numeric(intervalos_normales_proporcion[2])
+  
+  
+  
+  intervalos_percentil_proporcion <- boots_3 |> 
+    unnest(resultados) |> 
+    mutate(upper = estimate >= max(intervalos_percentil$sup),
+           lower = estimate <= min(intervalos_percentil$inf))|>
+    summarise(prop_inf = mean(lower),
+              prop_sup = mean(upper))
+  prop_inferior_quantil[i] <- as.numeric(intervalos_percentil_proporcion[1])
+  prop_superior_quantil[i] <- as.numeric(intervalos_percentil_proporcion[2])
+  
+  cobertura_quantil[i] <- 100 - 
+    as.numeric(intervalos_percentil_proporcion[1]) - 
+    as.numeric(intervalos_percentil_proporcion[2])
+  
+  
+}
+
+Proporcion_Normal_ <- c(" % fallo izquierda normal" = mean(prop_inferior_normal), " % fallo derecha normal" = mean(prop_superior_normal), "Cobertura normal" = mean(cobertura_normal), "Longitud promedio normal"= mean(longitud_normal)) 
+Proporcion_Normal_
+Proporcion_Quantil_ <- c(" % fallo izquierda quantil" = mean(prop_inferior_quantil), " % fallo derecha quantil" = mean(prop_superior_quantil), "Cobertura quantil" = mean(cobertura_quantil), "Longitud promedio quantil" = mean(longitud_quantil)) 
+Proporcion_Quantil_
+```
+
+
+
