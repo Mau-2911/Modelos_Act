@@ -1,0 +1,260 @@
+---
+title: "Modelos_2"
+author: "Mauricio"
+date: "2022-11-14"
+output: 
+  pdf_document: default
+---
+
+
+```{r knit, eval = FALSE, include = FALSE}
+# Este bloque es sólo para que puedas verificar que el codigo compile bien. 
+
+rmarkdown::render("Modelos_2.Rmd", 
+                  output_file = "entrega.pdf", 
+                  clean = TRUE, 
+                  quiet = TRUE)
+```
+
+```{r setup, message=FALSE}
+
+renv::restore()
+
+library(tibble)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(patchwork)
+library(scales)
+library("fitdistrplus")
+library("VineCopula")
+library(copula)
+library(psych)
+install.packages("tinytex")
+tinytex::install_tinytex()
+
+# Escribiré mi clave única como semilla
+semilla <- 179992
+set.seed(semilla)
+```
+
+El objetivo de este trabajo es analizar cómo es que puede analizarse un seguro contra la quiebra de una empresa que cubre dos tipos de riesgos
+
+1. Lee en R el archivo de datos que te corresponde según tu clave única. Utiliza el comando read.csv o utilizar Import en R studio en el área de datos (generalmente arriba a la derecha).
+
+```{r}
+data <- read.csv(file = 'SP_179992.csv')
+data
+```
+
+
+2. La base de datos contiene el análisis de varias empresas en 20 periodos de tiempo, la primera columna muestra el porcentaje de empresas que quebraron debido a la causa 1 (p1) en cada periodo, mientras la columna 2 muestra el porcentaje de empresas que quebraron debido a la causa 2 (p2) en esos mismos periodos de tiempo.
+
+```{r}
+data
+```
+
+3. Utiliza la función cor() para calcular las medidas de correlación de Pearson, Spearman y Kendall. ¿Qué conclusiones puedes sacar?
+```{r}
+correlación <- data |>
+  summarise(Correlacion_Pearson = cor(x = V1, y = V2, method = 'pearson'), Correlacion_Spearman = cor(x = V1, y = V2, method = 'spearman'),             Correlacion_Kendall = cor(x = V1, y = V2, method = 'kendall'))
+correlación
+
+with(data, plot(x = V1, y= V2, pch=20, col='blue',
+                 xlab='Riesgo 1', las=1,
+                 ylab='Riesgo 2'))
+
+```
+
+4. Utiliza la función BiCopSelect() de la librería VineCopula para ajustar una cópula a la base de datos. ¿Cuál es la cópula que ajusta los datos? También se puede usar la función fitCopula() de la librería copula.
+```{r}
+
+copula <- BiCopSelect(data$V1,data$V2, 
+  familyset = NA,
+  selectioncrit = "AIC",
+  indeptest = FALSE,
+  level = 0.05,
+  weights = NA,
+  rotations = TRUE,
+  se = FALSE,
+  presel = TRUE,
+  method = "mle"
+)
+copula
+#Los resultados mostraron que los datos de empresas se ajustan a un modelo bivariado basado en la cópula Frank(par = 10.05, tau = 0.67)
+```
+Los resultados mostraron que los datos de empresas se ajustan a un modelo bivariado basado en la cópula Frank(par = 10.05, tau = 0.67)
+
+5. Ahora se ajusta una distribución a cada una de las marginales por separado. Puedes utilizar la función fitdist() de la librería fitdistrplus.
+```{r}
+descdist(data = data$V1, discrete = FALSE)
+descdist(data = data$V1, discrete = FALSE, boot = 100000)
+descdist(data = data$V2, discrete = FALSE)
+descdist(data = data$V2, discrete = FALSE, boot = 100000)
+#Se puede observar que se aproxima muy bien a una beta 
+
+beta_fx <- fitdist(data$V1, "beta")
+beta_fy <- fitdist(data$V2, "beta")
+beta_fx
+beta_fy
+
+plot(beta_fx, breaks = 10)
+plot(beta_fy, breaks = 10)
+#Comprobamos que la funcion beta pueda ser una buena función marginal para cada conjunto de datos
+```
+
+6. ¿Cuál es la función de distribución conjunta? (si la distribución marginal encontrada no tiene una función de distribución cerrada, sólo déjala indicada)
+```{r}
+
+myCop <- frankCopula(param = 10.05, dim = 2, use.indepC = c("message", "TRUE", "FALSE"))
+myMvd <- mvdc(copula=myCop, margins=c("beta", "beta"),
+              paramMargins=list(list(shape1 = 1.870104	, shape2 = 16.139213),list(shape1 = 2.714693, shape2 = 16.459483)))
+myCop
+"función de distribución conjunta"
+myMvd 
+```
+
+7. Se va a realizar una simulación de 10,000 realizaciones de la función de distribución encontrada en el inciso anterior. Para ello puedes usar las funciones mvdc() para ajustar la cópula y rMvdc() de la librería copula para simular valores sobre la distribución conjunta.
+```{r}
+n = 10000
+simulaciones <- as.data.frame(rMvdc(n, myMvd))
+
+```
+
+8. Para cada una de las 10,000 realizaciones se genera un número aleatorio entre 0 y 1 (runif()), si es menor que p1 o menor que p2, se asignará el valor de uno (la empresa quiebra por alguna de las causas); si es menor que ambos se asigna 2 y si es mayor que p1 y p2 se asigna 0. Este valor representa el valor de la suma asegurada que se pagará en caso de quiebra de la compañía por unidad de suma asegurada.
+```{r}
+
+
+identificador <- function(muestra){
+  aleatorio <- data.frame(runif(10000))
+  a = length(muestra$p1)
+  lista = c()
+  for(i in 1:10000){
+    if(aleatorio[i,1] < muestra[i,1] | aleatorio[i,1] < muestra[i,2]){
+      lista[i] = 1
+    }
+    if(aleatorio[i,1] < muestra[i,1] & aleatorio[i,1] < muestra[i,2]){
+      lista[i] = 2
+    }
+    if(aleatorio[i,1] > muestra[i,1] & aleatorio[i,1] > muestra[i,2]){
+      lista[i] = 0
+    }
+  }
+  final = data.frame(p1 = muestra$V1, p2 = muestra$V2, Simulacion = aleatorio, Seguro = lista) #P1 = muestra$p1, P2 = muestra$p2, simulación = aleatorio 
+  return(final)
+}
+
+insurance <- identificador(simulaciones)
+
+```
+
+9. Ahora vamos a considerar un modelo de Cox-Ingersol-Ross (CIR) para la tasa de interés,
+con periodos de tiempo mensuales y parámetros a = 0.21, b = 0.04 y σ = 0.0075.
+Simular 10,000 trayectorias. nivel inicial de la tasa de interes = 3.5% 
+```{r}
+# alfa  <- 0.21
+# beta  <- 0.04 
+# sigma <- 0.0075
+# r_0   <- .035
+# t     <- 0
+# W_t   <- 0
+# dr    <- 
+# dr_t <- alfa * (beta - r_0) * d_t + sigma * sqrt(r_0) * dW_t  
+# q     <- ((2*alfa*beta)/(sigma**2)) - 1 
+# 
+
+
+
+
+
+
+
+
+```
+
+10. Con cada trayectoria de tasa, encontrar el valor presente del beneficio de cada realización.
+```{r}
+
+```
+
+11. Calcular media, desviación estándar, cuantil al 95% y CTE al 95% del valor presente del
+beneficio de este seguro.
+```{r}
+L <- sort(data$V1)
+n = 20
+alfa <- .95
+g = floor((n + 1) * alfa)
+h = (n+1) * alfa - g
+q_alfa = (1 - h) * L[19] + h * L[20]
+cte <- 1/(n - g) * sum(L[(g + 1):n])
+
+resumen <- data_frame(minimo = min(data$V1), quantile_25 = quantile(data$V1, probs = .25), media = mean(data$V1), max = max(data$V1), sd = sd(data$V1), quantil_95 = q_alfa, CTE = cte)
+resumen 
+
+```
+De esta forma, con el cuantil podemos observar que con .05 de probabilidad, las perdidas serán mayores a 0.193275 y con el CTE con 0.05 de probabilidad la perdida esperada tomara el valor de 0.1944421. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
